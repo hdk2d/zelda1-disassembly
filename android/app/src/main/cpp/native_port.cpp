@@ -9,7 +9,22 @@
 
 namespace {
 
-std::vector<std::uint8_t> g_rom;
+struct ParsedRom {
+    std::vector<std::uint8_t> prg;
+    std::vector<std::uint8_t> chr;
+    std::vector<std::uint8_t> trainer;
+    std::uint32_t mapper = 0;
+    std::uint32_t submapper = 0;
+    bool nes2 = false;
+    bool chrRam = false;
+};
+
+std::vector<std::uint8_t> g_prg_rom;
+std::vector<std::uint8_t> g_chr_data;
+std::vector<std::uint8_t> g_trainer;
+std::uint32_t g_mapper = 0;
+std::uint32_t g_submapper = 0;
+bool g_chr_is_ram = false;
 
 std::uint64_t nes2RomSize(std::uint8_t low, std::uint8_t highNibble,
                           std::uint64_t unit) {
@@ -22,23 +37,28 @@ std::uint64_t nes2RomSize(std::uint8_t low, std::uint8_t highNibble,
     return (std::uint64_t{1} << exponent) * (2 * multiplier + 1);
 }
 
-std::string inspectRom(const std::vector<std::uint8_t>& bytes) {
-    if (bytes.size() < 16) return "ROM inválida: el archivo es menor que la cabecera iNES (16 bytes).";
+bool parseRom(const std::vector<std::uint8_t>& bytes, ParsedRom& parsed,
+              std::string& error) {
+    if (bytes.size() < 16) {
+        error = "ROM inválida: el archivo es menor que la cabecera iNES (16 bytes).";
+        return false;
+    }
     if (bytes[0] != 'N' || bytes[1] != 'E' || bytes[2] != 'S' || bytes[3] != 0x1A) {
-        return "Archivo no reconocido: falta la firma iNES «NES\x1A».";
+        error = "Archivo no reconocido: falta la firma iNES NES\\x1A.";
+        return false;
     }
 
     const std::uint8_t flags6 = bytes[6];
     const std::uint8_t flags7 = bytes[7];
-    const bool nes2 = (flags7 & 0x0C) == 0x08;
-    const bool trainer = (flags6 & 0x04) != 0;
-    const std::uint32_t mapper = (flags6 >> 4) | (flags7 & 0xF0) |
-        (nes2 ? ((bytes[8] & 0x0F) << 8) : 0);
-    const std::uint32_t submapper = nes2 ? (bytes[8] >> 4) : 0;
+    parsed.nes2 = (flags7 & 0x0C) == 0x08;
+    const bool trainerPresent = (flags6 & 0x04) != 0;
+    parsed.mapper = (flags6 >> 4) | (flags7 & 0xF0) |
+        (parsed.nes2 ? ((bytes[8] & 0x0F) << 8) : 0);
+    parsed.submapper = parsed.nes2 ? (bytes[8] >> 4) : 0;
 
     std::uint64_t prgSize = 0;
     std::uint64_t chrSize = 0;
-    if (nes2) {
+    if (parsed.nes2) {
         prgSize = nes2RomSize(bytes[4], bytes[9] & 0x0F, 16 * 1024);
         chrSize = nes2RomSize(bytes[5], bytes[9] >> 4, 8 * 1024);
     } else {
@@ -48,32 +68,68 @@ std::string inspectRom(const std::vector<std::uint8_t>& bytes) {
 
     if (prgSize == 0 || prgSize > std::numeric_limits<std::size_t>::max() ||
         chrSize > std::numeric_limits<std::size_t>::max()) {
-        return "Cabecera inválida: tamaño PRG/CHR no válido o no compatible.";
+        error = "Cabecera inválida: tamaño PRG/CHR no válido o no compatible.";
+        return false;
     }
 
-    const std::uint64_t trainerSize = trainer ? 512 : 0;
+    const std::uint64_t trainerSize = trainerPresent ? 512 : 0;
     const std::uint64_t payloadOffset = 16 + trainerSize;
     if (payloadOffset > bytes.size() || prgSize > bytes.size() - payloadOffset ||
         chrSize > bytes.size() - payloadOffset - prgSize) {
-        std::ostringstream error;
-        error << "ROM incompleta: la cabecera declara PRG=" << prgSize
-              << " bytes y CHR=" << chrSize << " bytes, pero el archivo solo contiene "
-              << bytes.size() << " bytes.";
-        return error.str();
+        std::ostringstream message;
+        message << "ROM incompleta: la cabecera declara PRG=" << prgSize
+                << " bytes y CHR=" << chrSize << " bytes; el archivo contiene "
+                << bytes.size() << " bytes.";
+        error = message.str();
+        return false;
     }
 
-    const std::uint64_t expected = payloadOffset + prgSize + chrSize;
+    const std::size_t trainerOffset = 16;
+    const std::size_t prgOffset = static_cast<std::size_t>(payloadOffset);
+    const std::size_t chrOffset = prgOffset + static_cast<std::size_t>(prgSize);
+
+    if (trainerPresent) {
+        parsed.trainer.assign(bytes.begin() + trainerOffset,
+                              bytes.begin() + prgOffset);
+    }
+    parsed.prg.assign(bytes.begin() + prgOffset, bytes.begin() + chrOffset);
+
+    parsed.chrRam = chrSize == 0;
+    if (parsed.chrRam) {
+        // Cartuchos sin CHR-ROM usan memoria CHR-RAM. Zelda MMC1 normalmente
+        // carga sus patrones gráficos desde PRG-ROM hacia esta memoria.
+        parsed.chr.assign(8 * 1024, 0);
+    } else {
+        parsed.chr.assign(bytes.begin() + chrOffset,
+                          bytes.begin() + chrOffset + static_cast<std::size_t>(chrSize));
+    }
+    return true;
+}
+
+std::string loadRom(const std::vector<std::uint8_t>& bytes) {
+    ParsedRom parsed;
+    std::string error;
+    if (!parseRom(bytes, parsed, error)) return error;
+
+    // Publicamos los nuevos bancos solo después de validar y extraer todo.
+    g_prg_rom = std::move(parsed.prg);
+    g_chr_data = std::move(parsed.chr);
+    g_trainer = std::move(parsed.trainer);
+    g_mapper = parsed.mapper;
+    g_submapper = parsed.submapper;
+    g_chr_is_ram = parsed.chrRam;
+
     std::ostringstream report;
-    report << "ROM cargada y validada.\n"
-           << "Formato: " << (nes2 ? "NES 2.0" : "iNES 1.0") << "\n"
-           << "Mapper: " << mapper;
-    if (nes2) report << " | Submapper: " << submapper;
-    report << "\nPRG-ROM: " << prgSize / 1024 << " KiB"
-           << "\nCHR-ROM: " << chrSize / 1024 << " KiB"
-           << "\nTrainer: " << (trainer ? "sí" : "no")
-           << "\nDatos adicionales: " << (bytes.size() > expected ? bytes.size() - expected : 0)
-           << " bytes\n\nLos datos se leyeron en memoria nativa. "
-           << "Todavía no se ejecuta el juego: faltan el motor de juego y el renderizador.";
+    report << "ROM cargada y separada en memoria nativa.\\n"
+           << "Formato: " << (parsed.nes2 ? "NES 2.0" : "iNES 1.0") << "\\n"
+           << "Mapper: " << g_mapper;
+    if (parsed.nes2) report << " | Submapper: " << g_submapper;
+    report << "\\nPRG-ROM: " << g_prg_rom.size() / 1024 << " KiB"
+           << "\\nCHR-" << (g_chr_is_ram ? "RAM" : "ROM") << ": "
+           << g_chr_data.size() / 1024 << " KiB"
+           << "\\nTrainer: " << (g_trainer.empty() ? "no" : "512 bytes")
+           << "\\nEstado: PRG y CHR están en buffers independientes."
+           << "\\nTodavía no se dibuja el juego; esta etapa prepara los datos para el decodificador gráfico.";
     return report.str();
 }
 
@@ -82,8 +138,8 @@ std::string inspectRom(const std::vector<std::uint8_t>& bytes) {
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_hdk2d_zeldanative_MainActivity_nativeStatus(JNIEnv* env, jobject) {
     constexpr char status[] =
-        "Motor nativo C++20 iniciado.\n"
-        "Selecciona un archivo .nes para validar su cabecera y cargar sus datos.";
+        "Motor nativo C++20 iniciado.\\n"
+        "Selecciona un archivo .nes para separar PRG y CHR en memoria nativa.";
     return env->NewStringUTF(status);
 }
 
@@ -96,11 +152,11 @@ Java_com_hdk2d_zeldanative_MainActivity_nativeLoadRom(
 
     std::vector<std::uint8_t> candidate(static_cast<std::size_t>(length));
     env->GetByteArrayRegion(input, 0, length, reinterpret_cast<jbyte*>(candidate.data()));
-    if (env->ExceptionCheck()) return env->NewStringUTF("No se pudieron leer los bytes del archivo.");
-
-    const std::string result = inspectRom(candidate);
-    if (result.rfind("ROM cargada y validada.", 0) == 0) {
-        g_rom = std::move(candidate);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return env->NewStringUTF("No se pudieron leer los bytes del archivo.");
     }
+
+    const std::string result = loadRom(candidate);
     return env->NewStringUTF(result.c_str());
 }

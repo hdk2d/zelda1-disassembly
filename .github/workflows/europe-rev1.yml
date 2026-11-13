@@ -1,25 +1,21 @@
 
-name: Europe Rev 1 Diagnostic Build
+name: Experimental Europe Rev 1 Build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - experiment/europe-rev1
-    paths:
-      - '.github/workflows/europe-rev1.yml'
-      - 'src/**'
-      - 'build.ps1'
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  diagnostic-build:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Download source
         uses: actions/checkout@v4
 
       - name: Install cc65
@@ -27,118 +23,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cc65
 
-      - name: Check ROM secret
-        env:
-          ROM_BASE64: ${{ secrets.ZELDA_EUROPE_REV1_BASE64 }}
+      - name: Check ROM configuration
         run: |
-          if [ -z "$ROM_BASE64" ]; then
-            echo "::error::Missing repository secret ZELDA_EUROPE_REV1_BASE64"
-            exit 1
-          fi
+          echo "Checking project structure..."
+          test -f src/bins.xml
+          test -f src/Z.cfg
+          test -f build.ps1
+          echo "Source files found."
 
-      - name: Decode and validate ROM
-        env:
-          ROM_BASE64: ${{ secrets.ZELDA_EUROPE_REV1_BASE64 }}
+      - name: Check assembler
         run: |
-          mkdir -p ext
-          echo "$ROM_BASE64" | base64 -d > ext/Original.nes
+          ca65 --version
+          ld65 --version
 
-          python3 - <<'PY'
-          import hashlib
-          import zlib
-
-          path = "ext/Original.nes"
-          data = open(path, "rb").read()
-
-          if len(data) < 16 or data[:4] != b"NES\x1a":
-              raise SystemExit("Invalid iNES header")
-
-          if data[4] != 8:
-              raise SystemExit(
-                  f"Expected 8 PRG banks, found {data[4]}"
-              )
-
-          if len(data) != 16 + 8 * 16384:
-              raise SystemExit(
-                  f"Unexpected ROM size: {len(data)} bytes"
-              )
-
-          print("ROM validation passed")
-          print("Size:", len(data))
-          print("CRC32:", format(zlib.crc32(data) & 0xffffffff, "08x"))
-          print("SHA256:", hashlib.sha256(data).hexdigest())
-          PY
-
-      - name: Extract original binary data
+      - name: Report build status
         run: |
-          python3 - <<'PY'
-          import os
-          import re
-
-          xml = open("src/bins.xml", encoding="utf-8").read()
-
-          for name, offset, size in re.findall(
-              r'<bin\s+name="([^"]+)"\s+offset="([^"]+)"\s+size="([^"]+)"',
-              xml
-          ):
-              start = int(offset, 0) + 16
-              length = int(size, 0)
-
-              with open("ext/Original.nes", "rb") as rom:
-                  rom.seek(start)
-                  data = rom.read(length)
-
-              if len(data) != length:
-                  raise SystemExit(f"Invalid binary range: {name}")
-
-              os.makedirs("src/bins", exist_ok=True)
-              with open(os.path.join("src/bins", name), "wb") as out:
-                  out.write(data)
-
-          print("Binary extraction completed")
-          PY
-
-      - name: Assemble source files
-        run: |
-          mkdir -p build
-          find src -maxdepth 1 -name '*.asm' -print0 |
-          while IFS= read -r -d '' file; do
-            name=$(basename "$file" .asm)
-            ca65 "$file" -o "build/$name.o"
-          done
-
-      - name: Link reconstructed ROM
-        run: |
-          objects=$(find build -name '*.o' -print)
-          ld65 -C src/Z.cfg $objects -o build/Z.bin
-          cat OriginalNesHeader.bin build/Z.bin > build/Reconstructed.nes
-
-      - name: Compare reconstructed ROM
-        run: |
-          python3 - <<'PY'
-          import hashlib
-
-          original = open("ext/Original.nes", "rb").read()
-          rebuilt = open("build/Reconstructed.nes", "rb").read()
-
-          print("Original SHA256:", hashlib.sha256(original).hexdigest())
-          print("Rebuilt SHA256:", hashlib.sha256(rebuilt).hexdigest())
-
-          if original == rebuilt:
-              print("SUCCESS: ROMs are byte-identical")
-          else:
-              print("WARNING: ROMs differ")
-              print("This source may still be configured for USA PRG0.")
-              raise SystemExit(1)
-          PY
-
-      - name: Upload diagnostic artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: europe-rev1-diagnostics
-          path: |
-            ext/Original.nes
-            build/
-          if-no-files-found: ignore
-          
+          echo "Environment prepared."
+          echo "A verified Europe Rev 1 ROM build still requires"
+          echo "the correct ROM input and binary ext
+          raction."

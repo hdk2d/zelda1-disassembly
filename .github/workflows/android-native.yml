@@ -16,6 +16,9 @@ jobs:
   build-debug-apk:
     name: Build Android debug APK
     runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -31,15 +34,27 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      # GitHub-hosted Ubuntu runners already provide Android SDK and sdkmanager.
-      # Do not run setup-android here: its legacy "tools" package request fails
-      # against current Android SDK repositories.
+      - name: Locate Android SDK command-line tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager was not found under $ANDROID_SDK_ROOT/cmdline-tools"
+            find "$ANDROID_SDK_ROOT" -maxdepth 4 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+          chmod +x "$SDKMANAGER"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+          echo "Using $SDKMANAGER"
+          "$SDKMANAGER" --version
+
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses
+        run: yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
 
       - name: Install Android SDK components
         run: |
-          sdkmanager --install \
+          sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --install \
             "platforms;android-35" \
             "build-tools;35.0.0" \
             "ndk;27.2.12479018" \

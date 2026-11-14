@@ -18,10 +18,12 @@ class MainActivity : Activity() {
     private external fun nativeLoadRom(data: ByteArray): String
     private external fun nativeLinkPixels(): IntArray?
     private external fun nativeBackgroundPixels(): IntArray?
+    private external fun nativeBackgroundBrownPixels(): IntArray?
 
     private lateinit var status: TextView
     private lateinit var linkPreview: ImageView
     private lateinit var backgroundPreview: ImageView
+    private lateinit var backgroundBrownPreview: ImageView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,12 +62,23 @@ class MainActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         val backgroundTitle = TextView(this).apply {
-            text = "Patrones originales del ambiente (112 tiles)"
+            text = "Patrones originales del ambiente (tiles 00–FF)"
             textSize = 18f
             gravity = Gravity.CENTER
             setPadding(8, 24, 8, 8)
         }
         backgroundPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF202020.toInt())
+            setPadding(12, 12, 12, 12)
+        }
+        val brownTitle = TextView(this).apply {
+            text = "Mismos patrones con paleta marrón de montaña"
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setPadding(8, 12, 8, 8)
+        }
+        backgroundBrownPreview = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(0xFF202020.toInt())
             setPadding(12, 12, 12, 12)
@@ -81,6 +94,8 @@ class MainActivity : Activity() {
             addView(linkPreview, ViewGroup.LayoutParams.MATCH_PARENT, 360)
             addView(backgroundTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(backgroundPreview, ViewGroup.LayoutParams.MATCH_PARENT, 300)
+            addView(brownTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(backgroundBrownPreview, ViewGroup.LayoutParams.MATCH_PARENT, 300)
             addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         setContentView(ScrollView(this).apply { addView(content) })
@@ -113,13 +128,22 @@ class MainActivity : Activity() {
                 linkPreview.setImageDrawable(null)
             }
             val backgroundPixels = nativeBackgroundPixels()
-            if (backgroundPixels != null && backgroundPixels.size == 128 * 56) {
+            if (backgroundPixels != null && backgroundPixels.size == 128 * 128) {
                 val backgroundBitmap = Bitmap.createBitmap(
-                    backgroundPixels, 128, 56, Bitmap.Config.ARGB_8888
+                    backgroundPixels, 128, 128, Bitmap.Config.ARGB_8888
                 )
                 backgroundPreview.setImageBitmap(backgroundBitmap)
             } else {
                 backgroundPreview.setImageDrawable(null)
+            }
+            val brownPixels = nativeBackgroundBrownPixels()
+            if (brownPixels != null && brownPixels.size == 128 * 128) {
+                val brownBitmap = Bitmap.createBitmap(
+                    brownPixels, 128, 128, Bitmap.Config.ARGB_8888
+                )
+                backgroundBrownPreview.setImageBitmap(brownBitmap)
+            } else {
+                backgroundBrownPreview.setImageDrawable(null)
             }
         } catch (e: Exception) {
             status.text = "Error al leer el archivo: ${e.message ?: "desconocido"}"

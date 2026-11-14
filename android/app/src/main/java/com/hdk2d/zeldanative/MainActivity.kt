@@ -2,6 +2,8 @@ package com.hdk2d.zeldanative
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.Bitmap
+import android.widget.ImageView
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
@@ -14,8 +16,10 @@ import android.widget.TextView
 class MainActivity : Activity() {
     private external fun nativeStatus(): String
     private external fun nativeLoadRom(data: ByteArray): String
+    private external fun nativeLinkPixels(): IntArray?
 
     private lateinit var status: TextView
+    private lateinit var linkPreview: ImageView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,6 +46,17 @@ class MainActivity : Activity() {
             setTextIsSelectable(true)
             setPadding(16, 20, 16, 20)
         }
+        val linkTitle = TextView(this).apply {
+            text = "Vista de Link (patrones originales)"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(8, 20, 8, 8)
+        }
+        linkPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF202020.toInt())
+            setPadding(24, 24, 24, 24)
+        }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -49,6 +64,8 @@ class MainActivity : Activity() {
             addView(title, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(description, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(openButton, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(linkTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(linkPreview, ViewGroup.LayoutParams.MATCH_PARENT, 360)
             addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         setContentView(ScrollView(this).apply { addView(content) })
@@ -73,6 +90,13 @@ class MainActivity : Activity() {
             val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: throw IllegalStateException("No se pudo abrir el archivo.")
             status.text = nativeLoadRom(bytes)
+            val pixels = nativeLinkPixels()
+            if (pixels != null && pixels.size == 16 * 16) {
+                val bitmap = Bitmap.createBitmap(pixels, 16, 16, Bitmap.Config.ARGB_8888)
+                linkPreview.setImageBitmap(bitmap)
+            } else {
+                linkPreview.setImageDrawable(null)
+            }
         } catch (e: Exception) {
             status.text = "Error al leer el archivo: ${e.message ?: "desconocido"}"
         }

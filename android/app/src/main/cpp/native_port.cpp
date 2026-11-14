@@ -28,6 +28,9 @@ bool g_chr_is_ram = false;
 std::vector<std::uint32_t> g_link_pixels;
 std::vector<std::uint32_t> g_background_pixels;
 std::vector<std::uint32_t> g_background_brown_pixels;
+std::vector<std::uint32_t> g_overworld_pixels;
+std::uint8_t g_overworld_start_room = 0xFF;
+std::uint8_t g_overworld_unique_room = 0xFF;
 
 bool extractLinkSprite() {
     // Common sprite patterns begin at CPU address $807F in PRG bank 2.
@@ -216,6 +219,179 @@ bool extractBackgroundTiles() {
     return true;
 }
 
+
+bool extractStartingOverworldRoom() {
+    if (g_prg_rom.size() < 8 * 16 * 1024 ||
+        g_background_pixels.size() != 128 * 128) return false;
+
+    constexpr std::size_t bankSize = 16 * 1024;
+    constexpr std::size_t bank5 = 5 * bankSize;
+    constexpr std::size_t bank6 = 6 * bankSize;
+
+    // LevelBlockAddrsQ1 and LevelInfoAddrs are the first two ROM tables
+    // in bank 6. Their first entries point to the original overworld data.
+    const auto readWord = [](const std::vector<std::uint8_t>& data,
+                             std::size_t offset) -> std::uint16_t {
+        return static_cast<std::uint16_t>(data[offset]) |
+               (static_cast<std::uint16_t>(data[offset + 1]) << 8);
+    };
+    const std::uint16_t levelBlockAddress = readWord(g_prg_rom, bank6);
+    const std::uint16_t levelInfoAddress = readWord(g_prg_rom, bank6 + 20);
+    if (levelBlockAddress < 0x8000 || levelBlockAddress >= 0xC000 ||
+        levelInfoAddress < 0x8000 || levelInfoAddress >= 0xC000) return false;
+
+    const std::size_t levelBlockOffset =
+        bank6 + static_cast<std::size_t>(levelBlockAddress - 0x8000);
+    const std::size_t levelInfoOffset =
+        bank6 + static_cast<std::size_t>(levelInfoAddress - 0x8000);
+    if (levelBlockOffset + 0x300 > g_prg_rom.size() ||
+        levelInfoOffset + 0x100 > g_prg_rom.size()) return false;
+
+    // LevelInfo_StartRoomId is at offset $2F in the 256-byte OW info block.
+    // LevelBlockAttrsD is the fourth 128-byte array in LevelBlockOW.
+    g_overworld_start_room = g_prg_rom[levelInfoOffset + 0x2F];
+    if (g_overworld_start_room >= 0x80) return false;
+    const std::uint8_t roomAttributes =
+        g_prg_rom[levelBlockOffset + 0x180 + g_overworld_start_room];
+    g_overworld_unique_room = roomAttributes & 0x3F;
+
+    // RoomLayoutsOW contains 64 layouts of 16 column descriptors each.
+    // The three 16-byte cave layouts immediately precede ColumnHeapOW0.
+    constexpr std::uint8_t columnHeapSignature[] = {
+        0xDB, 0x5B, 0x5B, 0xDB, 0x5B, 0x1B, 0x0E, 0x1A,
+        0x5B, 0xDB, 0x4E, 0x4E, 0x4E, 0x0E, 0x1A, 0x1B
+    };
+    std::size_t columnHeap0Offset = g_prg_rom.size();
+    for (std::size_t i = bank5; i + sizeof(columnHeapSignature) <= bank5 + bankSize; ++i) {
+        bool match = true;
+        for (std::size_t j = 0; j < sizeof(columnHeapSignature); ++j) {
+            if (g_prg_rom[i + j] != columnHeapSignature[j]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            columnHeap0Offset = i;
+            break;
+        }
+    }
+    if (columnHeap0Offset == g_prg_rom.size() ||
+        columnHeap0Offset < bank5 + 0x430) return false;
+    const std::size_t roomLayoutsOffset = columnHeap0Offset - 0x430;
+    const std::size_t roomLayoutOffset =
+        roomLayoutsOffset + static_cast<std::size_t>(g_overworld_unique_room) * 16;
+    if (roomLayoutOffset + 16 > columnHeap0Offset - 0x30) return false;
+
+    constexpr std::uint16_t columnDirectory[16] = {
+        0x9BD8, 0x9C0D, 0x9C3E, 0x9C80,
+        0x9CC4, 0x9CF6, 0x9D32, 0x9D6D,
+        0x9DA8, 0x9DE6, 0x9E27, 0x9E6C,
+        0x9EA9, 0x9EDF, 0x9F21, 0x9F55
+    };
+    constexpr std::uint8_t primarySquares[56] = {
+        0x24, 0x6F, 0xF3, 0xFA, 0x98, 0x90, 0x8F, 0x95,
+        0x8E, 0x90, 0x74, 0x76, 0xF3, 0x24, 0x26, 0x89,
+        0x03, 0x04, 0x70, 0xC8, 0xBC, 0x8D, 0x8F, 0x93,
+        0x95, 0xC4, 0xCE, 0xD8, 0xB0, 0xB4, 0xAA, 0xAC,
+        0xB8, 0x9C, 0xA6, 0x9A, 0xA2, 0xA0, 0xE5, 0xE6,
+        0xE7, 0xE8, 0xE9, 0xEA, 0xC0, 0xE0, 0x78, 0x7A,
+        0x7E, 0x80, 0xCC, 0xD0, 0xD4, 0xDC, 0x89, 0x84
+    };
+    constexpr std::uint8_t secondarySquares[64] = {
+        0x24, 0x24, 0x24, 0x24, 0x6F, 0x6F, 0x6F, 0x6F,
+        0xF3, 0xF3, 0xF3, 0xF3, 0xFA, 0xFA, 0xFA, 0xFA,
+        0x98, 0x95, 0x26, 0x26, 0x90, 0x95, 0x90, 0x95,
+        0x8F, 0x90, 0x8F, 0x90, 0x95, 0x96, 0x95, 0x96,
+        0x8E, 0x93, 0x90, 0x95, 0x90, 0x95, 0x92, 0x97,
+        0x74, 0x74, 0x75, 0x75, 0x76, 0x77, 0x76, 0x77,
+        0xF3, 0x24, 0xF3, 0x24, 0x24, 0x24, 0x24, 0x24,
+        0x26, 0x26, 0x26, 0x26, 0x89, 0x88, 0x8B, 0x88
+    };
+
+    // The original layout is 16 columns x 11 two-by-two-tile squares.
+    std::uint8_t tileMap[32 * 22] = {};
+    for (std::size_t column = 0; column < 16; ++column) {
+        const std::uint8_t descriptor = g_prg_rom[roomLayoutOffset + column];
+        const std::size_t tableIndex = descriptor >> 4;
+        const std::size_t columnIndex = descriptor & 0x0F;
+        const std::uint16_t tableAddress = columnDirectory[tableIndex];
+        const std::size_t tableOffset =
+            bank5 + static_cast<std::size_t>(tableAddress - 0x8000);
+        const std::size_t tableEnd = tableIndex + 1 < 16
+            ? bank5 + static_cast<std::size_t>(columnDirectory[tableIndex + 1] - 0x8000)
+            : bank5 + bankSize;
+        if (tableOffset >= tableEnd || tableEnd > bank5 + bankSize) return false;
+
+        std::size_t position = tableEnd;
+        std::size_t foundColumns = 0;
+        for (std::size_t scan = tableOffset; scan < tableEnd; ++scan) {
+            if ((g_prg_rom[scan] & 0x80) == 0) continue;
+            if (foundColumns == columnIndex) {
+                position = scan;
+                break;
+            }
+            ++foundColumns;
+        }
+        if (position == tableEnd) return false;
+
+        bool repeatSquare = false;
+        for (std::size_t squareRow = 0; squareRow < 11; ++squareRow) {
+            if (position >= tableEnd) return false;
+            const std::uint8_t squareDescriptor = g_prg_rom[position];
+            const std::uint8_t squareIndex = squareDescriptor & 0x3F;
+            std::uint8_t tiles[4];
+            if (squareIndex < 0x10) {
+                const std::size_t secondaryOffset =
+                    static_cast<std::size_t>(squareIndex) * 4;
+                for (std::size_t i = 0; i < 4; ++i) {
+                    tiles[i] = secondarySquares[secondaryOffset + i];
+                }
+            } else {
+                if (squareIndex >= sizeof(primarySquares)) return false;
+                const std::uint8_t first = primarySquares[squareIndex];
+                tiles[0] = first;
+                tiles[1] = static_cast<std::uint8_t>(first + 1);
+                tiles[2] = static_cast<std::uint8_t>(first + 2);
+                tiles[3] = static_cast<std::uint8_t>(first + 3);
+            }
+
+            const std::size_t x = column * 2;
+            const std::size_t y = squareRow * 2;
+            tileMap[y * 32 + x] = tiles[0];
+            tileMap[(y + 1) * 32 + x] = tiles[1];
+            tileMap[y * 32 + x + 1] = tiles[2];
+            tileMap[(y + 1) * 32 + x + 1] = tiles[3];
+
+            if ((squareDescriptor & 0x40) != 0) {
+                repeatSquare = !repeatSquare;
+                if (!repeatSquare) ++position;
+            } else {
+                ++position;
+            }
+        }
+    }
+
+    constexpr std::size_t mapWidth = 32 * 8;
+    constexpr std::size_t mapHeight = 22 * 8;
+    g_overworld_pixels.assign(mapWidth * mapHeight, 0xFF000000);
+    for (std::size_t tileY = 0; tileY < 22; ++tileY) {
+        for (std::size_t tileX = 0; tileX < 32; ++tileX) {
+            const std::uint8_t tile = tileMap[tileY * 32 + tileX];
+            const std::size_t atlasX = (tile % 16) * 8;
+            const std::size_t atlasY = (tile / 16) * 8;
+            for (std::size_t y = 0; y < 8; ++y) {
+                for (std::size_t x = 0; x < 8; ++x) {
+                    const std::size_t source = (atlasY + y) * 128 + atlasX + x;
+                    const std::size_t target = (tileY * 8 + y) * mapWidth +
+                                               tileX * 8 + x;
+                    g_overworld_pixels[target] = g_background_pixels[source];
+                }
+            }
+        }
+    }
+    return true;
+}
+
 std::uint64_t nes2RomSize(std::uint8_t low, std::uint8_t highNibble,
                           std::uint64_t unit) {
     if (highNibble != 0x0F) {
@@ -311,8 +487,12 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
     g_link_pixels.clear();
     g_background_pixels.clear();
     g_background_brown_pixels.clear();
+    g_overworld_pixels.clear();
+    g_overworld_start_room = 0xFF;
+    g_overworld_unique_room = 0xFF;
     const bool linkFound = extractLinkSprite();
     const bool backgroundFound = extractBackgroundTiles();
+    const bool overworldFound = backgroundFound && extractStartingOverworldRoom();
 
     std::ostringstream report;
     report << "ROM cargada y separada en memoria nativa.\\n"
@@ -325,6 +505,12 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
            << "\\nTrainer: " << (g_trainer.empty() ? "no" : "512 bytes")
            << "\\nLink: " << (linkFound ? "metasprite 2x2 decodificado con la paleta original de Link." : "no se pudo localizar el bloque gráfico.")
            << "\\nAmbiente: " << (backgroundFound ? "patrones comunes y 130 patrones del mundo exterior decodificados; atlas con paletas verde y marrón originales." : "no se localizó el bloque de patrones de fondo.")
+           << "\\nOverworld: " << (overworldFound ? "pantalla inicial reconstruida desde las tablas originales (32x22 tiles, sala $" : "no se pudo reconstruir la sala inicial.");
+    if (overworldFound) {
+        report << std::hex << static_cast<unsigned>(g_overworld_start_room)
+               << ", layout $" << static_cast<unsigned>(g_overworld_unique_room) << ").";
+    }
+    report
            << "\\nEstado: PRG y CHR están en buffers independientes."
            << "\\nTodavía no se dibuja el juego; esta etapa prepara los datos para el decodificador gráfico.";
     return report.str();
@@ -350,6 +536,16 @@ Java_com_hdk2d_zeldanative_MainActivity_nativeBackgroundPixels(JNIEnv* env, jobj
     if (result == nullptr) return nullptr;
     env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_background_pixels.size()),
                            reinterpret_cast<const jint*>(g_background_pixels.data()));
+    return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_hdk2d_zeldanative_MainActivity_nativeOverworldPixels(JNIEnv* env, jobject) {
+    if (g_overworld_pixels.size() != 256 * 176) return nullptr;
+    jintArray result = env->NewIntArray(static_cast<jsize>(g_overworld_pixels.size()));
+    if (result == nullptr) return nullptr;
+    env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_overworld_pixels.size()),
+                           reinterpret_cast<const jint*>(g_overworld_pixels.data()));
     return result;
 }
 

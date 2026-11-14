@@ -31,9 +31,20 @@ std::vector<std::uint32_t> g_background_brown_pixels;
 std::vector<std::uint32_t> g_overworld_pixels;
 std::vector<std::uint32_t> g_octorok_pixels;
 std::vector<std::uint32_t> g_octorok_demo_pixels;
-float g_octorok_demo_x = 24.0f;
-float g_octorok_demo_y = 80.0f;
-float g_octorok_demo_velocity = 0.5f;
+struct DemoOctorok {
+    float x;
+    float y;
+    float vx;
+    float vy;
+    std::uint32_t animationPhase;
+};
+
+DemoOctorok g_demo_octoroks[] = {
+    {24.0f, 28.0f, 0.42f, 0.24f, 0u},
+    {174.0f, 42.0f, -0.34f, 0.30f, 2u},
+    {62.0f, 112.0f, 0.38f, -0.26f, 4u},
+    {194.0f, 124.0f, -0.30f, -0.22f, 1u}
+};
 std::uint32_t g_octorok_demo_tick = 0;
 bool g_octorok_demo_active = false;
 
@@ -45,20 +56,26 @@ bool renderOctorokDemoFrame() {
         g_octorok_pixels.size() != 6 * spriteSize * spriteSize) return false;
 
     g_octorok_demo_pixels = g_overworld_pixels;
-    const std::size_t frame = (g_octorok_demo_tick / 8u) % 6u;
-    const int originX = static_cast<int>(g_octorok_demo_x);
-    const int originY = static_cast<int>(g_octorok_demo_y);
-    for (int y = 0; y < 16; ++y) {
-        for (int x = 0; x < 16; ++x) {
-            const std::uint32_t pixel =
-                g_octorok_pixels[frame * 256u + static_cast<std::size_t>(y * 16 + x)];
-            if ((pixel >> 24) == 0) continue;
-            const int targetX = originX + x;
-            const int targetY = originY + y;
-            if (targetX < 0 || targetX >= static_cast<int>(width) ||
-                targetY < 0 || targetY >= static_cast<int>(height)) continue;
-            g_octorok_demo_pixels[static_cast<std::size_t>(targetY) * width +
-                                  static_cast<std::size_t>(targetX)] = pixel;
+    for (const DemoOctorok& enemy : g_demo_octoroks) {
+        // Keep the six extracted ROM frame slots in their original order.
+        // Each enemy has a phase offset so their animation is not synchronized.
+        const std::size_t frame =
+            ((g_octorok_demo_tick / 8u) + enemy.animationPhase) % 6u;
+        const int originX = static_cast<int>(enemy.x);
+        const int originY = static_cast<int>(enemy.y);
+        for (int y = 0; y < 16; ++y) {
+            for (int x = 0; x < 16; ++x) {
+                const std::uint32_t pixel =
+                    g_octorok_pixels[frame * 256u +
+                                     static_cast<std::size_t>(y * 16 + x)];
+                if ((pixel >> 24) == 0) continue;
+                const int targetX = originX + x;
+                const int targetY = originY + y;
+                if (targetX < 0 || targetX >= static_cast<int>(width) ||
+                    targetY < 0 || targetY >= static_cast<int>(height)) continue;
+                g_octorok_demo_pixels[static_cast<std::size_t>(targetY) * width +
+                                      static_cast<std::size_t>(targetX)] = pixel;
+            }
         }
     }
     return true;
@@ -673,9 +690,10 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_hdk2d_zeldanative_MainActivity_nativeStartOctorokDemo(JNIEnv*, jobject) {
     if (g_overworld_pixels.size() != 256 * 176 ||
         g_octorok_pixels.size() != 6 * 256) return JNI_FALSE;
-    g_octorok_demo_x = 24.0f;
-    g_octorok_demo_y = 80.0f;
-    g_octorok_demo_velocity = 0.5f;
+    g_demo_octoroks[0] = {24.0f, 28.0f, 0.42f, 0.24f, 0u};
+    g_demo_octoroks[1] = {174.0f, 42.0f, -0.34f, 0.30f, 2u};
+    g_demo_octoroks[2] = {62.0f, 112.0f, 0.38f, -0.26f, 4u};
+    g_demo_octoroks[3] = {194.0f, 124.0f, -0.30f, -0.22f, 1u};
     g_octorok_demo_tick = 0;
     g_octorok_demo_active = renderOctorokDemoFrame();
     return g_octorok_demo_active ? JNI_TRUE : JNI_FALSE;
@@ -684,13 +702,18 @@ Java_com_hdk2d_zeldanative_MainActivity_nativeStartOctorokDemo(JNIEnv*, jobject)
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_hdk2d_zeldanative_MainActivity_nativeAdvanceOctorokDemo(JNIEnv* env, jobject) {
     if (!g_octorok_demo_active) return nullptr;
-    g_octorok_demo_x += g_octorok_demo_velocity;
-    if (g_octorok_demo_x > 224.0f) {
-        g_octorok_demo_x = 224.0f;
-        g_octorok_demo_velocity = -0.5f;
-    } else if (g_octorok_demo_x < 16.0f) {
-        g_octorok_demo_x = 16.0f;
-        g_octorok_demo_velocity = 0.5f;
+    // Independent movement paths; reverse each axis at the room bounds.
+    for (DemoOctorok& enemy : g_demo_octoroks) {
+        enemy.x += enemy.vx;
+        enemy.y += enemy.vy;
+        if (enemy.x < 8.0f || enemy.x > 232.0f) {
+            enemy.x = enemy.x < 8.0f ? 8.0f : 232.0f;
+            enemy.vx = -enemy.vx;
+        }
+        if (enemy.y < 8.0f || enemy.y > 152.0f) {
+            enemy.y = enemy.y < 8.0f ? 8.0f : 152.0f;
+            enemy.vy = -enemy.vy;
+        }
     }
     ++g_octorok_demo_tick;
     if (!renderOctorokDemoFrame()) return nullptr;

@@ -169,9 +169,15 @@ class MainActivity : Activity() {
             }
             val octorokPixels = nativeOctorokPixels()
             if (octorokPixels != null && octorokPixels.size == 6 * 16 * 16) {
-                val octorokBitmap = Bitmap.createBitmap(
-                    octorokPixels, 96, 16, Bitmap.Config.ARGB_8888
-                )
+                val octorokBitmap = Bitmap.createBitmap(96, 16, Bitmap.Config.ARGB_8888)
+                for (frame in 0 until 6) {
+                    for (y in 0 until 16) {
+                        octorokBitmap.setPixels(
+                            octorokPixels, frame * 256 + y * 16, 16,
+                            frame * 16, y, 16, 1
+                        )
+                    }
+                }
                 octorokPreview.setImageBitmap(octorokBitmap)
             } else {
                 octorokPreview.setImageDrawable(null)

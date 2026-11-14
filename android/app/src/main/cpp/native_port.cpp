@@ -30,6 +30,40 @@ std::vector<std::uint32_t> g_background_pixels;
 std::vector<std::uint32_t> g_background_brown_pixels;
 std::vector<std::uint32_t> g_overworld_pixels;
 std::vector<std::uint32_t> g_octorok_pixels;
+std::vector<std::uint32_t> g_octorok_demo_pixels;
+float g_octorok_demo_x = 24.0f;
+float g_octorok_demo_y = 80.0f;
+float g_octorok_demo_velocity = 0.5f;
+std::uint32_t g_octorok_demo_tick = 0;
+bool g_octorok_demo_active = false;
+
+bool renderOctorokDemoFrame() {
+    constexpr std::size_t width = 256;
+    constexpr std::size_t height = 176;
+    constexpr std::size_t spriteSize = 16;
+    if (g_overworld_pixels.size() != width * height ||
+        g_octorok_pixels.size() != 6 * spriteSize * spriteSize) return false;
+
+    g_octorok_demo_pixels = g_overworld_pixels;
+    const std::size_t frame = (g_octorok_demo_tick / 8u) % 6u;
+    const int originX = static_cast<int>(g_octorok_demo_x);
+    const int originY = static_cast<int>(g_octorok_demo_y);
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            const std::uint32_t pixel =
+                g_octorok_pixels[frame * 256u + static_cast<std::size_t>(y * 16 + x)];
+            if ((pixel >> 24) == 0) continue;
+            const int targetX = originX + x;
+            const int targetY = originY + y;
+            if (targetX < 0 || targetX >= static_cast<int>(width) ||
+                targetY < 0 || targetY >= static_cast<int>(height)) continue;
+            g_octorok_demo_pixels[static_cast<std::size_t>(targetY) * width +
+                                  static_cast<std::size_t>(targetX)] = pixel;
+        }
+    }
+    return true;
+}
+
 std::uint8_t g_overworld_start_room = 0xFF;
 std::uint8_t g_overworld_unique_room = 0xFF;
 
@@ -599,6 +633,9 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
     g_background_brown_pixels.clear();
     g_overworld_pixels.clear();
     g_octorok_pixels.clear();
+    g_octorok_demo_pixels.clear();
+    g_octorok_demo_active = false;
+    g_octorok_demo_tick = 0;
     g_overworld_start_room = 0xFF;
     g_overworld_unique_room = 0xFF;
     const bool linkFound = extractLinkSprite();
@@ -631,6 +668,38 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
 
 }  // namespace
 
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_hdk2d_zeldanative_MainActivity_nativeStartOctorokDemo(JNIEnv*, jobject) {
+    if (g_overworld_pixels.size() != 256 * 176 ||
+        g_octorok_pixels.size() != 6 * 256) return JNI_FALSE;
+    g_octorok_demo_x = 24.0f;
+    g_octorok_demo_y = 80.0f;
+    g_octorok_demo_velocity = 0.5f;
+    g_octorok_demo_tick = 0;
+    g_octorok_demo_active = renderOctorokDemoFrame();
+    return g_octorok_demo_active ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_hdk2d_zeldanative_MainActivity_nativeAdvanceOctorokDemo(JNIEnv* env, jobject) {
+    if (!g_octorok_demo_active) return nullptr;
+    g_octorok_demo_x += g_octorok_demo_velocity;
+    if (g_octorok_demo_x > 224.0f) {
+        g_octorok_demo_x = 224.0f;
+        g_octorok_demo_velocity = -0.5f;
+    } else if (g_octorok_demo_x < 16.0f) {
+        g_octorok_demo_x = 16.0f;
+        g_octorok_demo_velocity = 0.5f;
+    }
+    ++g_octorok_demo_tick;
+    if (!renderOctorokDemoFrame()) return nullptr;
+    jintArray result = env->NewIntArray(static_cast<jsize>(g_octorok_demo_pixels.size()));
+    if (result == nullptr) return nullptr;
+    env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_octorok_demo_pixels.size()),
+                           reinterpret_cast<const jint*>(g_octorok_demo_pixels.data()));
+    return result;
+}
 
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_hdk2d_zeldanative_MainActivity_nativeLinkPixels(JNIEnv* env, jobject) {

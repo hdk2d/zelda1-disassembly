@@ -299,8 +299,9 @@ class MainActivity : Activity() {
             } else {
                 backgroundBrownPreview.setImageDrawable(null)
             }
-            stopOctorokDemo()
-            gamePreview.setImageDrawable(null)
+            // Start the native Octorok movement preview only after the ROM
+            // and all diagnostic graphics have been loaded successfully.
+            startOctorokDemo()
         } catch (e: Exception) {
             status.text = "Error al leer el archivo: ${e.message ?: "desconocido"}"
         }

@@ -99,7 +99,7 @@ class MainActivity : Activity() {
             contentDescription = "Seis cuadros extraídos del Octorok"
         }
         val gameTitle = TextView(this).apply {
-            text = "Prueba de movimiento del Octorok (sin IA ni colisiones)"
+            text = "Prueba de movimiento de varios Octoroks (vista experimental)"
             textSize = 18f
             gravity = Gravity.CENTER
             setPadding(8, 24, 8, 8)

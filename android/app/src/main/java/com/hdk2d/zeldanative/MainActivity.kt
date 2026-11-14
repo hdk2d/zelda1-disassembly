@@ -20,6 +20,7 @@ class MainActivity : Activity() {
     private external fun nativeBackgroundPixels(): IntArray?
     private external fun nativeBackgroundBrownPixels(): IntArray?
     private external fun nativeOverworldPixels(): IntArray?
+    private external fun nativeOctorokPixels(): IntArray?
 
     private lateinit var status: TextView
     private lateinit var linkPreview: ImageView
@@ -75,6 +76,18 @@ class MainActivity : Activity() {
             setPadding(12, 12, 12, 12)
             contentDescription = "Reconstrucción nativa de la sala inicial de Zelda"
         }
+        val octorokTitle = TextView(this).apply {
+            text = "Enemigo Octorok (6 cuadros de animación, extracción diagnóstica)"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(8, 24, 8, 8)
+        }
+        val octorokPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF202020.toInt())
+            setPadding(12, 12, 12, 12)
+            contentDescription = "Seis cuadros extraídos del Octorok"
+        }
         val backgroundTitle = TextView(this).apply {
             text = "Patrones originales del ambiente (tiles 00–FF)"
             textSize = 18f
@@ -108,6 +121,8 @@ class MainActivity : Activity() {
             addView(linkPreview, ViewGroup.LayoutParams.MATCH_PARENT, 360)
             addView(overworldTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(overworldPreview, ViewGroup.LayoutParams.MATCH_PARENT, 260)
+            addView(octorokTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(octorokPreview, ViewGroup.LayoutParams.MATCH_PARENT, 180)
             addView(backgroundTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(backgroundPreview, ViewGroup.LayoutParams.MATCH_PARENT, 300)
             addView(brownTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -151,6 +166,15 @@ class MainActivity : Activity() {
                 overworldPreview.setImageBitmap(overworldBitmap)
             } else {
                 overworldPreview.setImageDrawable(null)
+            }
+            val octorokPixels = nativeOctorokPixels()
+            if (octorokPixels != null && octorokPixels.size == 6 * 16 * 16) {
+                val octorokBitmap = Bitmap.createBitmap(
+                    octorokPixels, 96, 16, Bitmap.Config.ARGB_8888
+                )
+                octorokPreview.setImageBitmap(octorokBitmap)
+            } else {
+                octorokPreview.setImageDrawable(null)
             }
             val backgroundPixels = nativeBackgroundPixels()
             if (backgroundPixels != null && backgroundPixels.size == 128 * 128) {

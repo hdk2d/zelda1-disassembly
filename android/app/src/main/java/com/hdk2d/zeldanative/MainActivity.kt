@@ -19,11 +19,13 @@ class MainActivity : Activity() {
     private external fun nativeLinkPixels(): IntArray?
     private external fun nativeBackgroundPixels(): IntArray?
     private external fun nativeBackgroundBrownPixels(): IntArray?
+    private external fun nativeOverworldPixels(): IntArray?
 
     private lateinit var status: TextView
     private lateinit var linkPreview: ImageView
     private lateinit var backgroundPreview: ImageView
     private lateinit var backgroundBrownPreview: ImageView
+    private lateinit var overworldPreview: ImageView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +63,18 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFF202020.toInt())
             setPadding(24, 24, 24, 24)
         }
+        val overworldTitle = TextView(this).apply {
+            text = "Primera pantalla original del overworld (32×22 tiles)"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(8, 24, 8, 8)
+        }
+        overworldPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF202020.toInt())
+            setPadding(12, 12, 12, 12)
+            contentDescription = "Reconstrucción nativa de la sala inicial de Zelda"
+        }
         val backgroundTitle = TextView(this).apply {
             text = "Patrones originales del ambiente (tiles 00–FF)"
             textSize = 18f
@@ -92,6 +106,8 @@ class MainActivity : Activity() {
             addView(openButton, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(linkTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(linkPreview, ViewGroup.LayoutParams.MATCH_PARENT, 360)
+            addView(overworldTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(overworldPreview, ViewGroup.LayoutParams.MATCH_PARENT, 260)
             addView(backgroundTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(backgroundPreview, ViewGroup.LayoutParams.MATCH_PARENT, 300)
             addView(brownTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -126,6 +142,15 @@ class MainActivity : Activity() {
                 linkPreview.setImageBitmap(bitmap)
             } else {
                 linkPreview.setImageDrawable(null)
+            }
+            val overworldPixels = nativeOverworldPixels()
+            if (overworldPixels != null && overworldPixels.size == 256 * 176) {
+                val overworldBitmap = Bitmap.createBitmap(
+                    overworldPixels, 256, 176, Bitmap.Config.ARGB_8888
+                )
+                overworldPreview.setImageBitmap(overworldBitmap)
+            } else {
+                overworldPreview.setImageDrawable(null)
             }
             val backgroundPixels = nativeBackgroundPixels()
             if (backgroundPixels != null && backgroundPixels.size == 128 * 128) {

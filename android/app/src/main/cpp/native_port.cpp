@@ -249,13 +249,44 @@ bool extractOverworldOctorok() {
     constexpr std::size_t frameWidth = 16;
     constexpr std::size_t frameHeight = 16;
     constexpr std::size_t frameCount = 6;
-    if (g_prg_rom.size() < spriteBlockOffset + spriteBlockSize) return false;
+    constexpr std::size_t redEnemyPaletteOffset = 0x1931B;
+    if (g_prg_rom.size() < spriteBlockOffset + spriteBlockSize ||
+        redEnemyPaletteOffset + 4 > g_prg_rom.size()) return false;
 
-    // Diagnostic preview: transparent pixel 0 and neutral grayscale for
-    // the three opaque NES pixel values. The exact gameplay palette is
-    // selected dynamically by the original game and is not hardcoded here.
-    constexpr std::uint32_t colors[4] = {
-        0x00000000, 0xFFF8F8F8, 0xFF989898, 0xFF303030
+    // The US PRG0 overworld red-enemy sprite palette is stored at PRG offset
+    // $1931B: 0F, 16, 27, 30. Read it from the loaded ROM, not from constants.
+    const std::uint8_t paletteIndices[4] = {
+        g_prg_rom[redEnemyPaletteOffset],
+        g_prg_rom[redEnemyPaletteOffset + 1],
+        g_prg_rom[redEnemyPaletteOffset + 2],
+        g_prg_rom[redEnemyPaletteOffset + 3]
+    };
+
+    // Standard 2C02 RGB approximation, shared in value with the overworld
+    // background extractor. Pixel 0 remains transparent for NES sprites.
+    constexpr std::uint32_t nesRgb[64] = {
+        0xFF7C7C7C,0xFF0000FC,0xFF0000BC,0xFF4428BC,
+        0xFF940084,0xFFA80020,0xFFA81000,0xFF881400,
+        0xFF503000,0xFF007800,0xFF006800,0xFF005800,
+        0xFF004058,0xFF000000,0xFF000000,0xFF000000,
+        0xFFBCBCBC,0xFF0078F8,0xFF0058F8,0xFF6844FC,
+        0xFFD800CC,0xFFE40058,0xFFF83800,0xFFE45C10,
+        0xFFAC7C00,0xFF00B800,0xFF00A800,0xFF00A844,
+        0xFF008888,0xFF000000,0xFF000000,0xFF000000,
+        0xFFF8F8F8,0xFF3CBCFC,0xFF6888FC,0xFF9878F8,
+        0xFFF878F8,0xFFF85898,0xFFF87858,0xFFFCA044,
+        0xFFF8B800,0xFFB8F818,0xFF58D854,0xFF58F898,
+        0xFF00E8D8,0xFF787878,0xFF000000,0xFF000000,
+        0xFFFCFCFC,0xFFA4E4FC,0xFFB8B8F8,0xFFD8B8F8,
+        0xFFF8B8F8,0xFFF8A4C0,0xFFF0D0B0,0xFFFCE0A8,
+        0xFFF8D878,0xFFD8F878,0xFFB8F8B8,0xFFB8F8D8,
+        0xFF00FCFC,0xFFF8D8F8,0xFF000000,0xFF000000
+    };
+    const std::uint32_t colors[4] = {
+        0x00000000,
+        nesRgb[paletteIndices[1] & 0x3F],
+        nesRgb[paletteIndices[2] & 0x3F],
+        nesRgb[paletteIndices[3] & 0x3F]
     };
     g_octorok_pixels.assign(frameWidth * frameHeight * frameCount, 0);
     for (std::size_t frame = 0; frame < frameCount; ++frame) {
@@ -592,7 +623,7 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
                << ", layout $" << static_cast<unsigned>(g_overworld_unique_room) << ").";
     }
     report
-           << "\\nOctorok: " << (octorokFound ? "seis cuadros extraídos en vista de diagnóstico; paleta original pendiente de conexión." : "no se pudo localizar el bloque de patrones.")
+           << "\\nOctorok: " << (octorokFound ? "seis cuadros extraídos con la paleta original de enemigos rojos." : "no se pudo localizar el bloque de patrones.")
            << "\\nEstado: PRG y CHR están en buffers independientes."
            << "\\nEsta etapa muestra la sala inicial reconstruida; movimiento, colisiones y lógica de juego aún no están implementados.";
     return report.str();

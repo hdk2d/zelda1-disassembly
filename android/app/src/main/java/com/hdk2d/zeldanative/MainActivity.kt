@@ -1,6 +1,7 @@
 package com.hdk2d.zeldanative
 
 import android.app.Activity
+import android.view.Choreographer
 import android.content.Intent
 import android.graphics.Bitmap
 import android.widget.ImageView
@@ -21,6 +22,8 @@ class MainActivity : Activity() {
     private external fun nativeBackgroundBrownPixels(): IntArray?
     private external fun nativeOverworldPixels(): IntArray?
     private external fun nativeOctorokPixels(): IntArray?
+    private external fun nativeStartOctorokDemo(): Boolean
+    private external fun nativeAdvanceOctorokDemo(): IntArray?
 
     private lateinit var status: TextView
     private lateinit var linkPreview: ImageView
@@ -28,6 +31,12 @@ class MainActivity : Activity() {
     private lateinit var backgroundBrownPreview: ImageView
     private lateinit var overworldPreview: ImageView
     private lateinit var octorokPreview: ImageView
+    private lateinit var gamePreview: ImageView
+    private var demoBitmap: Bitmap? = null
+    private var demoRunning = false
+    private var lastDemoFrameNanos = 0L
+    private var demoAccumulatorNanos = 0L
+    private var demoCallback: Choreographer.FrameCallback? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,6 +98,18 @@ class MainActivity : Activity() {
             setPadding(12, 12, 12, 12)
             contentDescription = "Seis cuadros extraídos del Octorok"
         }
+        val gameTitle = TextView(this).apply {
+            text = "Prueba de movimiento del Octorok (sin IA ni colisiones)"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(8, 24, 8, 8)
+        }
+        gamePreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF202020.toInt())
+            setPadding(12, 12, 12, 12)
+            contentDescription = "Prueba experimental de desplazamiento del Octorok sobre el overworld"
+        }
         val backgroundTitle = TextView(this).apply {
             text = "Patrones originales del ambiente (tiles 00–FF)"
             textSize = 18f
@@ -124,6 +145,8 @@ class MainActivity : Activity() {
             addView(overworldPreview, ViewGroup.LayoutParams.MATCH_PARENT, 260)
             addView(octorokTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(octorokPreview, ViewGroup.LayoutParams.MATCH_PARENT, 180)
+            addView(gameTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(gamePreview, ViewGroup.LayoutParams.MATCH_PARENT, 260)
             addView(backgroundTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(backgroundPreview, ViewGroup.LayoutParams.MATCH_PARENT, 300)
             addView(brownTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -131,6 +154,77 @@ class MainActivity : Activity() {
             addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         setContentView(ScrollView(this).apply { addView(content) })
+    }
+
+    private fun startOctorokDemo() {
+        stopOctorokDemo()
+        demoBitmap = null
+        gamePreview.setImageDrawable(null)
+        if (!nativeStartOctorokDemo()) {
+            status.text = status.text.toString() + "\nPrueba de movimiento: no disponible; falta el mapa o el sprite."
+            return
+        }
+        val background = nativeOverworldPixels()
+        if (background != null && background.size == 256 * 176) {
+            demoBitmap = Bitmap.createBitmap(background, 256, 176, Bitmap.Config.ARGB_8888)
+            gamePreview.setImageBitmap(demoBitmap)
+        }
+        demoRunning = true
+        lastDemoFrameNanos = 0L
+        demoAccumulatorNanos = 0L
+        scheduleDemoFrame()
+    }
+
+    private fun scheduleDemoFrame() {
+        if (!demoRunning) return
+        val callback = Choreographer.FrameCallback { frameTimeNanos ->
+            if (!demoRunning) return@FrameCallback
+            if (lastDemoFrameNanos == 0L) {
+                lastDemoFrameNanos = frameTimeNanos
+            } else {
+                val elapsed = (frameTimeNanos - lastDemoFrameNanos).coerceAtMost(100_000_000L)
+                lastDemoFrameNanos = frameTimeNanos
+                demoAccumulatorNanos += elapsed
+                while (demoAccumulatorNanos >= 16_666_667L) {
+                    val pixels = nativeAdvanceOctorokDemo()
+                    if (pixels != null && pixels.size == 256 * 176) {
+                        var bitmap = demoBitmap
+                        if (bitmap == null) {
+                            bitmap = Bitmap.createBitmap(256, 176, Bitmap.Config.ARGB_8888)
+                            demoBitmap = bitmap
+                        }
+                        bitmap.setPixels(pixels, 0, 256, 0, 0, 256, 176)
+                        gamePreview.setImageBitmap(bitmap)
+                    }
+                    demoAccumulatorNanos -= 16_666_667L
+                }
+            }
+            scheduleDemoFrame()
+        }
+        demoCallback = callback
+        Choreographer.getInstance().postFrameCallback(callback)
+    }
+
+    private fun stopOctorokDemo() {
+        demoRunning = false
+        demoCallback?.let { Choreographer.getInstance().removeFrameCallback(it) }
+        demoCallback = null
+        lastDemoFrameNanos = 0L
+        demoAccumulatorNanos = 0L
+    }
+
+    override fun onPause() {
+        stopOctorokDemo()
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (demoBitmap != null && !demoRunning) {
+            demoRunning = true
+            lastDemoFrameNanos = 0L
+            scheduleDemoFrame()
+        }
     }
 
     private fun openRomPicker() {
@@ -201,6 +295,7 @@ class MainActivity : Activity() {
             } else {
                 backgroundBrownPreview.setImageDrawable(null)
             }
+            startOctorokDemo()
         } catch (e: Exception) {
             status.text = "Error al leer el archivo: ${e.message ?: "desconocido"}"
         }

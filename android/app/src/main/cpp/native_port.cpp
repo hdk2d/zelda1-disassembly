@@ -26,6 +26,7 @@ std::uint32_t g_mapper = 0;
 std::uint32_t g_submapper = 0;
 bool g_chr_is_ram = false;
 std::vector<std::uint32_t> g_link_pixels;
+std::vector<std::uint32_t> g_background_pixels;
 
 bool extractLinkSprite() {
     // Common sprite patterns begin at CPU address $807F in PRG bank 2.
@@ -101,6 +102,72 @@ bool extractLinkSprite() {
                 const unsigned pixel =
                     ((plane0 >> bit) & 1u) | (((plane1 >> bit) & 1u) << 1);
                 g_link_pixels[(tileY + y) * 16 + tileX + x] = colors[pixel];
+            }
+        }
+    }
+    return true;
+}
+
+
+bool extractBackgroundTiles() {
+    // CommonBackgroundPatterns is the second 0x700-byte block in the
+    // shared pattern table, immediately after CommonSpritePatterns.
+    constexpr std::uint8_t signature[] = {
+        0x07, 0x00, 0x07, 0x00, 0x00, 0xE0,
+        0x00, 0x00, 0x10, 0x00, 0x1F, 0x20
+    };
+    constexpr std::size_t bankSize = 16 * 1024;
+    constexpr std::size_t bank2Offset = 2 * bankSize;
+    if (g_prg_rom.size() < bank2Offset + bankSize) return false;
+
+    std::size_t backgroundOffset = g_prg_rom.size();
+    for (std::size_t i = 6; i + sizeof(signature) <= bankSize; ++i) {
+        bool match = true;
+        for (std::size_t j = 0; j < sizeof(signature); ++j) {
+            if (g_prg_rom[bank2Offset + i + j] != signature[j]) {
+                match = false;
+                break;
+            }
+        }
+        if (!match) continue;
+        // The table contains three little-endian pointers. The background
+        // block is pointer #1 (two bytes after the sprite pointer).
+        const std::uint16_t address =
+            static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 4]) |
+            (static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 3]) << 8);
+        if (address < 0x8000 || address >= 0xC000) continue;
+        backgroundOffset = bank2Offset + (address - 0x8000);
+        break;
+    }
+    constexpr std::size_t blockSize = 0x700; // 112 tiles, 16 bytes each.
+    if (backgroundOffset == g_prg_rom.size() ||
+        backgroundOffset + blockSize > g_prg_rom.size()) return false;
+
+    // Diagnostic grayscale keeps tile shapes readable before the original
+    // background palette and nametable attribute data are reconstructed.
+    constexpr std::uint32_t colors[4] = {
+        0xFF101010, 0xFF666666, 0xFFAAAAAA, 0xFFF0F0F0
+    };
+    constexpr std::size_t columns = 16;
+    constexpr std::size_t tileWidth = 8;
+    constexpr std::size_t tileHeight = 8;
+    constexpr std::size_t atlasWidth = columns * tileWidth;
+    constexpr std::size_t atlasHeight = 7 * tileHeight;
+    g_background_pixels.assign(atlasWidth * atlasHeight, 0xFF202020);
+
+    for (std::size_t tileIndex = 0; tileIndex < 112; ++tileIndex) {
+        const std::size_t tile = backgroundOffset + tileIndex * 16;
+        const std::size_t tileX = (tileIndex % columns) * tileWidth;
+        const std::size_t tileY = (tileIndex / columns) * tileHeight;
+        for (int y = 0; y < 8; ++y) {
+            const std::uint8_t plane0 = g_prg_rom[tile + y];
+            const std::uint8_t plane1 = g_prg_rom[tile + 8 + y];
+            for (int x = 0; x < 8; ++x) {
+                const int bit = 7 - x;
+                const unsigned pixel =
+                    ((plane0 >> bit) & 1u) | (((plane1 >> bit) & 1u) << 1);
+                g_background_pixels[(tileY + y) * atlasWidth + tileX + x] =
+                    colors[pixel];
             }
         }
     }
@@ -200,7 +267,9 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
     g_submapper = parsed.submapper;
     g_chr_is_ram = parsed.chrRam;
     g_link_pixels.clear();
+    g_background_pixels.clear();
     const bool linkFound = extractLinkSprite();
+    const bool backgroundFound = extractBackgroundTiles();
 
     std::ostringstream report;
     report << "ROM cargada y separada en memoria nativa.\\n"
@@ -212,6 +281,7 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
            << g_chr_data.size() / 1024 << " KiB"
            << "\\nTrainer: " << (g_trainer.empty() ? "no" : "512 bytes")
            << "\\nLink: " << (linkFound ? "metasprite 2x2 decodificado con la paleta original de Link." : "no se pudo localizar el bloque gráfico.")
+           << "\\nAmbiente: " << (backgroundFound ? "112 patrones de fondo decodificados (atlas de diagnóstico en gris)." : "no se localizó el bloque de patrones de fondo.")
            << "\\nEstado: PRG y CHR están en buffers independientes."
            << "\\nTodavía no se dibuja el juego; esta etapa prepara los datos para el decodificador gráfico.";
     return report.str();
@@ -227,6 +297,16 @@ Java_com_hdk2d_zeldanative_MainActivity_nativeLinkPixels(JNIEnv* env, jobject) {
     if (result == nullptr) return nullptr;
     env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_link_pixels.size()),
                            reinterpret_cast<const jint*>(g_link_pixels.data()));
+    return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_hdk2d_zeldanative_MainActivity_nativeBackgroundPixels(JNIEnv* env, jobject) {
+    if (g_background_pixels.size() != 128 * 56) return nullptr;
+    jintArray result = env->NewIntArray(static_cast<jsize>(g_background_pixels.size()));
+    if (result == nullptr) return nullptr;
+    env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_background_pixels.size()),
+                           reinterpret_cast<const jint*>(g_background_pixels.data()));
     return result;
 }
 

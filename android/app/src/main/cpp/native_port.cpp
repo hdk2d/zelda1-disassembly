@@ -124,6 +124,7 @@ bool extractBackgroundTiles() {
     if (g_prg_rom.size() < bank2Offset + bankSize) return false;
 
     std::size_t commonOffset = g_prg_rom.size();
+    std::size_t miscOffset = g_prg_rom.size();
     for (std::size_t i = 6; i + sizeof(signature) <= bankSize; ++i) {
         bool match = true;
         for (std::size_t j = 0; j < sizeof(signature); ++j) {
@@ -138,6 +139,12 @@ bool extractBackgroundTiles() {
             (static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 3]) << 8);
         if (address < 0x8000 || address >= 0xC000) continue;
         commonOffset = bank2Offset + (address - 0x8000);
+        const std::uint16_t miscAddress =
+            static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 2]) |
+            (static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 1]) << 8);
+        if (miscAddress >= 0x8000 && miscAddress < 0xC000) {
+            miscOffset = bank2Offset + (miscAddress - 0x8000);
+        }
         break;
     }
 
@@ -145,9 +152,11 @@ bool extractBackgroundTiles() {
     // PRG bank 3, CPU address $893B, 0x820 bytes = 130 tiles ($70-$F1).
     constexpr std::size_t overworldOffset = 3 * bankSize + 0x093B;
     constexpr std::size_t commonSize = 0x700;
+    constexpr std::size_t miscSize = 0x00E0;
     constexpr std::size_t overworldSize = 0x0820;
-    if (commonOffset == g_prg_rom.size() ||
+    if (commonOffset == g_prg_rom.size() || miscOffset == g_prg_rom.size() ||
         commonOffset + commonSize > g_prg_rom.size() ||
+        miscOffset + miscSize > g_prg_rom.size() ||
         overworldOffset + overworldSize > g_prg_rom.size() ||
         g_prg_rom.size() <= 0x19312) return false;
 
@@ -195,6 +204,8 @@ bool extractBackgroundTiles() {
             source = commonOffset + tileIndex * 16;
         } else if (tileIndex >= 0x70 && tileIndex <= 0xF1) {
             source = overworldOffset + (tileIndex - 0x70) * 16;
+        } else if (tileIndex >= 0xF2 && tileIndex <= 0xFF) {
+            source = miscOffset + (tileIndex - 0xF2) * 16;
         } else {
             continue; // Unused/reserved background tile slots.
         }

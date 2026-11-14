@@ -27,6 +27,7 @@ class MainActivity : Activity() {
     private lateinit var backgroundPreview: ImageView
     private lateinit var backgroundBrownPreview: ImageView
     private lateinit var overworldPreview: ImageView
+    private lateinit var octorokPreview: ImageView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,7 +83,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(8, 24, 8, 8)
         }
-        val octorokPreview = ImageView(this).apply {
+        octorokPreview = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setBackgroundColor(0xFF202020.toInt())
             setPadding(12, 12, 12, 12)

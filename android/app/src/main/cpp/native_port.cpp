@@ -266,8 +266,12 @@ bool extractStartingOverworldRoom() {
         g_prg_rom[levelBlockOffset + 0x180 + g_overworld_start_room];
     g_overworld_unique_room = roomAttributes & 0x3F;
 
-    // RoomLayoutsOW contains 64 layouts of 16 column descriptors each.
-    // The three 16-byte cave layouts immediately precede ColumnHeapOW0.
+    // RoomLayoutsOW is 0x790 bytes in the original ROM. The three
+    // 16-byte cave layouts immediately precede ColumnHeapOW0.
+    constexpr std::size_t roomLayoutsDataSize = 0x0790;
+    constexpr std::size_t caveLayoutsSize = 3 * 16;
+    constexpr std::size_t roomLayoutCount = 64;
+    constexpr std::size_t roomLayoutSize = 16;
     constexpr std::uint8_t columnHeapSignature[] = {
         0xDB, 0x5B, 0x5B, 0xDB, 0x5B, 0x1B, 0x0E, 0x1A,
         0x5B, 0xDB, 0x4E, 0x4E, 0x4E, 0x0E, 0x1A, 0x1B
@@ -286,12 +290,21 @@ bool extractStartingOverworldRoom() {
             break;
         }
     }
+    const std::size_t layoutsAndCavesSize =
+        roomLayoutsDataSize + caveLayoutsSize;
     if (columnHeap0Offset == g_prg_rom.size() ||
-        columnHeap0Offset < bank5 + 0x430) return false;
-    const std::size_t roomLayoutsOffset = columnHeap0Offset - 0x430;
+        columnHeap0Offset < bank5 + layoutsAndCavesSize) return false;
+
+    // The room ID indexes the first 64 layouts, exactly as LayoutRoomOW does.
+    const std::size_t roomLayoutsOffset =
+        columnHeap0Offset - layoutsAndCavesSize;
+    const std::size_t roomLayoutsEnd =
+        roomLayoutsOffset + roomLayoutCount * roomLayoutSize;
     const std::size_t roomLayoutOffset =
-        roomLayoutsOffset + static_cast<std::size_t>(g_overworld_unique_room) * 16;
-    if (roomLayoutOffset + 16 > columnHeap0Offset - 0x30) return false;
+        roomLayoutsOffset +
+        static_cast<std::size_t>(g_overworld_unique_room) * roomLayoutSize;
+    if (roomLayoutOffset + roomLayoutSize > roomLayoutsEnd ||
+        roomLayoutsEnd > columnHeap0Offset - caveLayoutsSize) return false;
 
     constexpr std::uint16_t columnDirectory[16] = {
         0x9BD8, 0x9C0D, 0x9C3E, 0x9C80,

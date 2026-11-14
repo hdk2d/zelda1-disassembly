@@ -17,9 +17,11 @@ class MainActivity : Activity() {
     private external fun nativeStatus(): String
     private external fun nativeLoadRom(data: ByteArray): String
     private external fun nativeLinkPixels(): IntArray?
+    private external fun nativeBackgroundPixels(): IntArray?
 
     private lateinit var status: TextView
     private lateinit var linkPreview: ImageView
+    private lateinit var backgroundPreview: ImageView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +59,17 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFF202020.toInt())
             setPadding(24, 24, 24, 24)
         }
+        val backgroundTitle = TextView(this).apply {
+            text = "Patrones originales del ambiente (112 tiles)"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(8, 24, 8, 8)
+        }
+        backgroundPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF202020.toInt())
+            setPadding(12, 12, 12, 12)
+        }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -66,6 +79,8 @@ class MainActivity : Activity() {
             addView(openButton, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(linkTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             addView(linkPreview, ViewGroup.LayoutParams.MATCH_PARENT, 360)
+            addView(backgroundTitle, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            addView(backgroundPreview, ViewGroup.LayoutParams.MATCH_PARENT, 300)
             addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
         setContentView(ScrollView(this).apply { addView(content) })
@@ -96,6 +111,15 @@ class MainActivity : Activity() {
                 linkPreview.setImageBitmap(bitmap)
             } else {
                 linkPreview.setImageDrawable(null)
+            }
+            val backgroundPixels = nativeBackgroundPixels()
+            if (backgroundPixels != null && backgroundPixels.size == 128 * 56) {
+                val backgroundBitmap = Bitmap.createBitmap(
+                    backgroundPixels, 128, 56, Bitmap.Config.ARGB_8888
+                )
+                backgroundPreview.setImageBitmap(backgroundBitmap)
+            } else {
+                backgroundPreview.setImageDrawable(null)
             }
         } catch (e: Exception) {
             status.text = "Error al leer el archivo: ${e.message ?: "desconocido"}"

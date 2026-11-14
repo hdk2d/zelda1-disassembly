@@ -28,8 +28,7 @@ bool g_chr_is_ram = false;
 std::vector<std::uint32_t> g_link_pixels;
 
 bool extractLinkSprite() {
-    // CommonPatternBlockAddrs table signature from the Zelda PRG0 disassembly:
-    // sizes: $0700, $0700, $00E0; PPU destinations: $0000, $1000, $1F20.
+    // Common sprite patterns begin at CPU address $807F in PRG bank 2.
     constexpr std::uint8_t signature[] = {
         0x07, 0x00, 0x07, 0x00, 0x00, 0xE0,
         0x00, 0x00, 0x10, 0x00, 0x1F, 0x20
@@ -48,27 +47,50 @@ bool extractLinkSprite() {
             }
         }
         if (!match) continue;
-
-        const std::uint16_t spriteAddress =
+        const std::uint16_t address =
             static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 6]) |
             (static_cast<std::uint16_t>(g_prg_rom[bank2Offset + i - 5]) << 8);
-        if (spriteAddress < 0x8000 || spriteAddress >= 0xC000) continue;
-        spriteOffset = bank2Offset + (spriteAddress - 0x8000);
+        if (address < 0x8000 || address >= 0xC000) continue;
+        spriteOffset = bank2Offset + (address - 0x8000);
         break;
     }
     if (spriteOffset == g_prg_rom.size() || spriteOffset + 0x700 > g_prg_rom.size()) {
         return false;
     }
 
-    // The original game places Link's left and right 8x8 patterns at tile IDs
-    // $08 and $0A in the common sprite-pattern block.
-    constexpr std::size_t tileOffsets[] = {0x08 * 16, 0x0A * 16};
-    constexpr std::uint32_t debugPalette[] = {
-        0x00000000, 0xFFFFD34E, 0xFF238B45, 0xFF653B20
+    // Link's standing metasprite is four 8x8 tiles in a 2x2 layout:
+    // 00 01
+    // 02 03
+    constexpr std::size_t tileIds[] = {0x00, 0x01, 0x02, 0x03};
+
+    // Link's overworld sprite palette, stored in PRG at file offset 0x19323
+    // (iNES header excluded from this buffer): 0F, 29, 27, 17.
+    constexpr std::size_t linkPaletteOffset = 0x19313;
+    if (linkPaletteOffset + 4 > g_prg_rom.size()) return false;
+    const std::uint8_t paletteIndices[4] = {
+        g_prg_rom[linkPaletteOffset], g_prg_rom[linkPaletteOffset + 1],
+        g_prg_rom[linkPaletteOffset + 2], g_prg_rom[linkPaletteOffset + 3]
     };
+
+    // Common 2C02 RGB approximation for the four palette entries used by Link.
+    auto nesColor = [](std::uint8_t index) -> std::uint32_t {
+        switch (index & 0x3F) {
+            case 0x29: return 0xFF78D800; // green tunic
+            case 0x27: return 0xFFFA9E00; // warm skin/tan
+            case 0x17: return 0xFF994E00; // brown
+            default:   return 0xFF000000;
+        }
+    };
+    const std::uint32_t colors[4] = {
+        0x00000000, nesColor(paletteIndices[1]),
+        nesColor(paletteIndices[2]), nesColor(paletteIndices[3])
+    };
+
     g_link_pixels.assign(16 * 16, 0);
-    for (std::size_t half = 0; half < 2; ++half) {
-        const std::size_t tile = spriteOffset + tileOffsets[half];
+    for (std::size_t tileIndex = 0; tileIndex < 4; ++tileIndex) {
+        const std::size_t tile = spriteOffset + tileIds[tileIndex] * 16;
+        const std::size_t tileX = (tileIndex & 1) * 8;
+        const std::size_t tileY = (tileIndex >> 1) * 8;
         for (int y = 0; y < 8; ++y) {
             const std::uint8_t plane0 = g_prg_rom[tile + y];
             const std::uint8_t plane1 = g_prg_rom[tile + 8 + y];
@@ -76,14 +98,12 @@ bool extractLinkSprite() {
                 const int bit = 7 - x;
                 const unsigned pixel =
                     ((plane0 >> bit) & 1u) | (((plane1 >> bit) & 1u) << 1);
-                g_link_pixels[static_cast<std::size_t>(y) * 16 + half * 8 + x] =
-                    debugPalette[pixel];
+                g_link_pixels[(tileY + y) * 16 + tileX + x] = colors[pixel];
             }
         }
     }
     return true;
 }
-
 
 std::uint64_t nes2RomSize(std::uint8_t low, std::uint8_t highNibble,
                           std::uint64_t unit) {
@@ -189,7 +209,7 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
            << "\\nCHR-" << (g_chr_is_ram ? "RAM" : "ROM") << ": "
            << g_chr_data.size() / 1024 << " KiB"
            << "\\nTrainer: " << (g_trainer.empty() ? "no" : "512 bytes")
-           << "\\nLink: " << (linkFound ? "patrones 2bpp decodificados (paleta de prueba)." : "no se pudo localizar el bloque gráfico.")
+           << "\\nLink: " << (linkFound ? "metasprite 2x2 decodificado con la paleta original de Link." : "no se pudo localizar el bloque gráfico.")
            << "\\nEstado: PRG y CHR están en buffers independientes."
            << "\\nTodavía no se dibuja el juego; esta etapa prepara los datos para el decodificador gráfico.";
     return report.str();

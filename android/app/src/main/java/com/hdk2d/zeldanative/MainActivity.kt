@@ -166,7 +166,11 @@ class MainActivity : Activity() {
         }
         val background = nativeOverworldPixels()
         if (background != null && background.size == 256 * 176) {
-            demoBitmap = Bitmap.createBitmap(background, 256, 176, Bitmap.Config.ARGB_8888)
+            // createBitmap(colors, ...) can return an immutable bitmap.
+            // The animation loop must write new frames, so use a mutable bitmap.
+            demoBitmap = Bitmap.createBitmap(256, 176, Bitmap.Config.ARGB_8888).apply {
+                setPixels(background, 0, 256, 0, 0, 256, 176)
+            }
             gamePreview.setImageBitmap(demoBitmap)
         }
         demoRunning = true
@@ -189,7 +193,7 @@ class MainActivity : Activity() {
                     val pixels = nativeAdvanceOctorokDemo()
                     if (pixels != null && pixels.size == 256 * 176) {
                         var bitmap = demoBitmap
-                        if (bitmap == null) {
+                        if (bitmap == null || bitmap.isRecycled || !bitmap.isMutable) {
                             bitmap = Bitmap.createBitmap(256, 176, Bitmap.Config.ARGB_8888)
                             demoBitmap = bitmap
                         }

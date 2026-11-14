@@ -512,7 +512,7 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
     }
     report
            << "\\nEstado: PRG y CHR están en buffers independientes."
-           << "\\nTodavía no se dibuja el juego; esta etapa prepara los datos para el decodificador gráfico.";
+           << "\\nEsta etapa muestra la sala inicial reconstruida; movimiento, colisiones y lógica de juego aún no están implementados.";
     return report.str();
 }
 

@@ -295,7 +295,8 @@ class MainActivity : Activity() {
             } else {
                 backgroundBrownPreview.setImageDrawable(null)
             }
-            startOctorokDemo()
+            stopOctorokDemo()
+            gamePreview.setImageDrawable(null)
         } catch (e: Exception) {
             status.text = "Error al leer el archivo: ${e.message ?: "desconocido"}"
         }

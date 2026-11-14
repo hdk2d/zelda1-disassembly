@@ -29,6 +29,7 @@ std::vector<std::uint32_t> g_link_pixels;
 std::vector<std::uint32_t> g_background_pixels;
 std::vector<std::uint32_t> g_background_brown_pixels;
 std::vector<std::uint32_t> g_overworld_pixels;
+std::vector<std::uint32_t> g_octorok_pixels;
 std::uint8_t g_overworld_start_room = 0xFF;
 std::uint8_t g_overworld_unique_room = 0xFF;
 
@@ -230,6 +231,60 @@ bool extractBackgroundTiles() {
     return true;
 }
 
+
+
+bool extractOverworldOctorok() {
+    // PatternBlockOWSP starts at PRG bank 3, CPU address $915B.
+    // The six slow red Octorok frames are selected by ObjAnimFrameHeap.
+    constexpr std::size_t bankSize = 16 * 1024;
+    constexpr std::size_t spriteBlockOffset = 3 * bankSize + 0x115B;
+    constexpr std::size_t spriteBlockSize = 0x0720;
+    constexpr std::uint8_t frameTiles[6] = {
+        0xB4, 0xB0, 0xB0, 0xB8, 0xB2, 0xB2
+    };
+    constexpr std::uint8_t frameAttributes[6] = {
+        0x02, 0x82, 0x02, 0x02, 0x82, 0x02
+    };
+    constexpr std::size_t firstPatternTile = 0x8E;
+    constexpr std::size_t frameWidth = 16;
+    constexpr std::size_t frameHeight = 16;
+    constexpr std::size_t frameCount = 6;
+    if (g_prg_rom.size() < spriteBlockOffset + spriteBlockSize) return false;
+
+    // Diagnostic preview: transparent pixel 0 and neutral grayscale for
+    // the three opaque NES pixel values. The exact gameplay palette is
+    // selected dynamically by the original game and is not hardcoded here.
+    constexpr std::uint32_t colors[4] = {
+        0x00000000, 0xFFF8F8F8, 0xFF989898, 0xFF303030
+    };
+    g_octorok_pixels.assign(frameWidth * frameHeight * frameCount, 0);
+    for (std::size_t frame = 0; frame < frameCount; ++frame) {
+        const std::size_t baseTile = frameTiles[frame] - firstPatternTile;
+        for (std::size_t tile = 0; tile < 4; ++tile) {
+            const std::size_t tileId = baseTile + (tile & 1u) * 2u + (tile >> 1u);
+            const std::size_t source = spriteBlockOffset + tileId * 16;
+            if (source + 16 > spriteBlockOffset + spriteBlockSize) return false;
+            for (std::size_t y = 0; y < 8; ++y) {
+                const std::size_t sourceY =
+                    (frameAttributes[frame] & 0x80u) ? 7u - y : y;
+                const std::uint8_t plane0 = g_prg_rom[source + sourceY];
+                const std::uint8_t plane1 = g_prg_rom[source + 8 + sourceY];
+                for (std::size_t x = 0; x < 8; ++x) {
+                    const unsigned bit = static_cast<unsigned>(7 - x);
+                    const unsigned pixel =
+                        ((plane0 >> bit) & 1u) | (((plane1 >> bit) & 1u) << 1u);
+                    const std::size_t tileX = (tile & 1u) * 8u;
+                    const std::size_t tileY = (tile >> 1u) * 8u;
+                    const std::size_t target =
+                        frame * frameWidth * frameHeight +
+                        (tileY + y) * frameWidth + tileX + x;
+                    g_octorok_pixels[target] = colors[pixel];
+                }
+            }
+        }
+    }
+    return true;
+}
 
 bool extractStartingOverworldRoom() {
     if (g_prg_rom.size() < 8 * 16 * 1024 ||
@@ -512,11 +567,13 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
     g_background_pixels.clear();
     g_background_brown_pixels.clear();
     g_overworld_pixels.clear();
+    g_octorok_pixels.clear();
     g_overworld_start_room = 0xFF;
     g_overworld_unique_room = 0xFF;
     const bool linkFound = extractLinkSprite();
     const bool backgroundFound = extractBackgroundTiles();
     const bool overworldFound = backgroundFound && extractStartingOverworldRoom();
+    const bool octorokFound = extractOverworldOctorok();
 
     std::ostringstream report;
     report << "ROM cargada y separada en memoria nativa.\\n"
@@ -535,6 +592,7 @@ std::string loadRom(const std::vector<std::uint8_t>& bytes) {
                << ", layout $" << static_cast<unsigned>(g_overworld_unique_room) << ").";
     }
     report
+           << "\\nOctorok: " << (octorokFound ? "seis cuadros extraídos en vista de diagnóstico; paleta original pendiente de conexión." : "no se pudo localizar el bloque de patrones.")
            << "\\nEstado: PRG y CHR están en buffers independientes."
            << "\\nEsta etapa muestra la sala inicial reconstruida; movimiento, colisiones y lógica de juego aún no están implementados.";
     return report.str();
@@ -550,6 +608,16 @@ Java_com_hdk2d_zeldanative_MainActivity_nativeLinkPixels(JNIEnv* env, jobject) {
     if (result == nullptr) return nullptr;
     env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_link_pixels.size()),
                            reinterpret_cast<const jint*>(g_link_pixels.data()));
+    return result;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_hdk2d_zeldanative_MainActivity_nativeOctorokPixels(JNIEnv* env, jobject) {
+    if (g_octorok_pixels.size() != 6 * 16 * 16) return nullptr;
+    jintArray result = env->NewIntArray(static_cast<jsize>(g_octorok_pixels.size()));
+    if (result == nullptr) return nullptr;
+    env->SetIntArrayRegion(result, 0, static_cast<jsize>(g_octorok_pixels.size()),
+                           reinterpret_cast<const jint*>(g_octorok_pixels.data()));
     return result;
 }
 

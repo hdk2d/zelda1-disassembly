@@ -57,17 +57,26 @@ bool renderOctorokDemoFrame() {
 
     g_octorok_demo_pixels = g_overworld_pixels;
     for (const DemoOctorok& enemy : g_demo_octoroks) {
-        // Keep the six extracted ROM frame slots in their original order.
-        // Each enemy has a phase offset so their animation is not synchronized.
-        const std::size_t frame =
-            ((g_octorok_demo_tick / 8u) + enemy.animationPhase) % 6u;
+        // The original game does not play all six slots in sequence.
+        // ObjAnimFrameHeap stores two poses, each with three directions:
+        // horizontal = 0, up = 1, down = 2. The pose alternates every 6 ticks.
+        const bool vertical = (enemy.vy < 0.0f ? -enemy.vy : enemy.vy) >
+                              (enemy.vx < 0.0f ? -enemy.vx : enemy.vx);
+        const std::size_t directionOffset = vertical
+            ? (enemy.vy < 0.0f ? 1u : 2u)
+            : 0u;
+        const std::size_t poseBase =
+            (((g_octorok_demo_tick / 6u) + enemy.animationPhase) & 1u) * 3u;
+        const std::size_t frame = poseBase + directionOffset;
+        const bool flipHorizontal = !vertical && enemy.vx > 0.0f;
         const int originX = static_cast<int>(enemy.x);
         const int originY = static_cast<int>(enemy.y);
         for (int y = 0; y < 16; ++y) {
             for (int x = 0; x < 16; ++x) {
+                const int sourceX = flipHorizontal ? 15 - x : x;
                 const std::uint32_t pixel =
                     g_octorok_pixels[frame * 256u +
-                                     static_cast<std::size_t>(y * 16 + x)];
+                                     static_cast<std::size_t>(y * 16 + sourceX)];
                 if ((pixel >> 24) == 0) continue;
                 const int targetX = originX + x;
                 const int targetY = originY + y;

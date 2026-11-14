@@ -58,10 +58,12 @@ bool extractLinkSprite() {
         return false;
     }
 
-    // Link's standing metasprite is four 8x8 tiles in a 2x2 layout:
-    // 00 01
-    // 02 03
-    constexpr std::size_t tileIds[] = {0x00, 0x01, 0x02, 0x03};
+    // Link uses two adjacent 8x16 OAM sprites. In 8x16 mode each OAM
+    // entry draws an even tile followed by the next tile vertically:
+    // left column = 00/01; right column = 02/03. The preview is:
+    // 00 02
+    // 01 03
+    constexpr std::size_t tileIds[] = {0x00, 0x02, 0x01, 0x03};
 
     // Link's overworld sprite palette, stored in PRG at file offset 0x19323
     // (iNES header excluded from this buffer): 0F, 29, 27, 17.
